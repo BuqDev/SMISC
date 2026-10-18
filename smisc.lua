@@ -10,21 +10,57 @@ local path, _ = arg[1], #arg ~= 0 or error("no file path given")
 local fileio, _ = io.open(path, "rb") or error("could not find file: '" .. path .. "'"), sub(path, #path - 2, #path) == ".sm" or error("file at \"" .. path .. "\" is not valid file type of \"*.sm\"")
 local code_text = fileio:read("*all")
 fileio:close()
--- might make my own thing for parsing spaces to be context aware and also split up longer strings 
 local function parse(code_text)
-    local t = {}
-    for s0 in string.gmatch(code_text, "([^\n]+)") do
-        local tokens = {}
-        for s1 in string.gmatch(s0, "([^ \t]+)") do
-            if tonumber(s1) then
-                insert(tokens, math.floor(tonumber(s1)))
+    local code, line, accum, intext = {}, {}, "", false
+    for i=1, #code_text do
+        local c = sub(code_text, i, i)
+        if c == "\"" then intext = not intext end
+        if c ~= " " and c ~= "\t" and c ~= "\n" and string.byte(c) ~= 13 then accum = accum .. c end
+        if c == "\n" then
+            if accum ~= "" then
+                if tonumber(accum) ~= nil then
+                    insert(line, tonumber(accum))
+                else
+                    insert(line, accum)
+                end
+            end
+            if sub(accum, 1, 1) == "\"" and #accum > 3 then
+                -- split up the string
+                local s = sub(accum, 2, #accum - 1)
+                for j=1, #s do
+                    insert(code, {"\"" .. sub(s, j, j) .. "\""})
+                end
             else
-                local _ = string.gsub(s1, string.char(13), "") insert(tokens, _)
+                insert(code, line)
+            end
+            accum = ""
+            line = {}
+        elseif c == " " or c == "\t" then
+            if not intext then
+                if accum == "" then
+                elseif tonumber(accum) ~= nil then
+                    insert(line, tonumber(accum))
+                else
+                    insert(line, accum)
+                end
+                accum = ""
+            else
+                accum = accum .. c
             end
         end
-        insert(t, tokens)
     end
-    return t
+    -- cleanup
+    if #accum > 0 then
+        if tonumber(accum) ~= nil then
+            insert(line, tonumber(accum))
+        else
+            insert(line, line)
+        end
+    end
+    if #line > 0 then
+        insert(code, line)
+    end
+    return code
 end
 local maxint = 4294967296
 local function runsmisc(code)
@@ -96,9 +132,9 @@ local function runsmisc(code)
         if tonumber(line[i]) then
             return line[i], i + 1
         elseif sub(line[i], 1, 1) == "\"" then
-            if line[i] == "\"\"" then
-                return string.byte(" "), i + 1
-            end
+            -- if line[i] == "\"\"" then
+            --     return string.byte(" "), i + 1
+            -- end
             return string.byte(sub(line[i], 2, 2)), i + 1
         elseif line[i] == "." then
             local tag_line = -1
