@@ -12,37 +12,27 @@ local code_text = fileio:read("*all")
 fileio:close()
 local function parse(code_text)
     local code, line, accum, intext = {}, {}, "", false
+    function cleanup()
+        if sub(accum, 1, 1) == "\"" and #accum > 3 then
+            for c in sub(accum, 2, #accum - 1):gmatch"." do
+                insert(code, {"\"" .. c .. "\""})
+            end
+        else
+            insert(line, tonumber(accum) or accum)
+            insert(code, line)
+        end
+    end
     for i=1, #code_text do
         local c = sub(code_text, i, i)
         if c == "\"" then intext = not intext end
-        if c ~= " " and c ~= "\t" and c ~= "\n" and string.byte(c) ~= 13 then accum = accum .. c end
+        if c ~= " " and c ~= "\t" and c ~= "\n" and c:byte() ~= 13 then accum = accum .. c end
         if c == "\n" then
-            if accum ~= "" then
-                if tonumber(accum) ~= nil then
-                    insert(line, tonumber(accum))
-                else
-                    insert(line, accum)
-                end
-            end
-            if sub(accum, 1, 1) == "\"" and #accum > 3 then
-                -- split up the string
-                local s = sub(accum, 2, #accum - 1)
-                for j=1, #s do
-                    insert(code, {"\"" .. sub(s, j, j) .. "\""})
-                end
-            else
-                insert(code, line)
-            end
-            accum = ""
-            line = {}
+            if accum ~= "" then cleanup()
+            else insert(code, line) end
+            line, accum = {}, ""
         elseif c == " " or c == "\t" then
             if not intext then
-                if accum == "" then
-                elseif tonumber(accum) ~= nil then
-                    insert(line, tonumber(accum))
-                else
-                    insert(line, accum)
-                end
+                if accum ~= "" then insert(line, tonumber(accum) or accum) end
                 accum = ""
             else
                 accum = accum .. c
@@ -50,16 +40,7 @@ local function parse(code_text)
         end
     end
     -- cleanup
-    if #accum > 0 then
-        if tonumber(accum) ~= nil then
-            insert(line, tonumber(accum))
-        else
-            insert(line, line)
-        end
-    end
-    if #line > 0 then
-        insert(code, line)
-    end
+    if #accum > 0 then cleanup() end
     return code
 end
 local maxint = 4294967296
@@ -77,7 +58,13 @@ local function runsmisc(code)
         ["input"]  = function(p)
             io.write("\n> ")
             local c = io.read("*l")
-            code[p[1]] = {"\"" .. sub(c, 1, 1) .. "\""}
+            local s = sub(c, 1, p[1])
+            for i=1, p[1] do
+                if sub(c, i, i) == "" then code[p[2] + i - 1] = {0}
+                else
+                    code[p[2] + i - 1] = {"\"" .. sub(c, i, i) .. "\""}
+                end
+            end
             return 0
         end,
         ["output"] = function(p)
@@ -85,9 +72,8 @@ local function runsmisc(code)
                 local n = p[2] + i - 1
                 local line = code[n]
                 if n > #code or 1 > n then
-                    error"Cannot copy outside of code body"
+                    error"Cannot output outside of code body"
                 end
-                -- print(line[1])
                 local v = doexpr(line, 1)
                 
                 io.write(string.char(v))
@@ -122,19 +108,18 @@ local function runsmisc(code)
     }
     function doexpr(line, i, prev)
         local value, done = 0, false
-        if line[i] == nil then
-            error(type(line) .. " " .. tostring(prev[1]))
+        if #line == 0 then
+            return 0, i + 1
         end
-
+        -- if line[i] == nil then
+        --     error(type(line) .. " " .. tostring(prev[1]))
+        -- end
         while line[i] == ")" do
             i = i + 1
         end
         if tonumber(line[i]) then
             return line[i], i + 1
         elseif sub(line[i], 1, 1) == "\"" then
-            -- if line[i] == "\"\"" then
-            --     return string.byte(" "), i + 1
-            -- end
             return string.byte(sub(line[i], 2, 2)), i + 1
         elseif line[i] == "." then
             local tag_line = -1
